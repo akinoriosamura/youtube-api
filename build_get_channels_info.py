@@ -1,17 +1,27 @@
 import os
 import time
+import traceback
 import pandas as pd
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 
 
-API_KEY = os.environ['API_KEY2']
+API_KEY = os.environ['API_KEY10']
 YOUTUBE_API_SERVICE_NAME = 'youtube'
 YOUTUBE_API_VERSION = 'v3'
-CHANNEL_IDs = ['UCmsA3A5_HKBwI9OktSttTFg', 'UCN559lrbV9wt46NwlnPJtPw']
-CHANNEL_NAMEs = ['fukuse yuuriマリリン', '会社員J']
+NUM_TOTAL_VIDEOS = 0
+with open('./channel_urls.txt') as f:
+    _CHANNEL_URLs = f.readlines()
+    CHANNEL_URLs = [ci.strip() for ci in _CHANNEL_URLs] 
+with open('./channel_names.txt') as f:
+    _CHANNEL_NAMEs = f.readlines()
+    CHANNEL_NAMEs = [os.path.basename(cn.strip()) for cn in _CHANNEL_NAMEs] 
+print("CHANNEL_URLs: ", CHANNEL_URLs)
+print("CHANNEL_NAMEs: ", CHANNEL_NAMEs)
+assert len(CHANNEL_URLs) == len(CHANNEL_NAMEs), "no match length ids and names"
+assert len(set(CHANNEL_URLs)) == len(set(CHANNEL_NAMEs)), "there is not unique itrems"
 
-for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
+for (CHANNEL_URL, CHANNEL_NAME) in zip(CHANNEL_URLs, CHANNEL_NAMEs):
     P_NextPageToken = "nextPagetoken_" + CHANNEL_NAME + ".txt"
 
     searches = [] #videoidを格納する配列
@@ -33,6 +43,18 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
         YOUTUBE_API_VERSION,
         developerKey=API_KEY
         )
+    # get channelid
+    if 'channel' in CHANNEL_URL:
+        CHANNEL_ID = os.path.basename(CHANNEL_URL)
+    else:
+        search_response = youtube.channels().list(
+        part = "snippet",
+        forUsername = os.path.basename(CHANNEL_URL),
+        maxResults = 1
+        ).execute()
+        CHANNEL_ID = search_response.get("items", [])[0]['id']
+    print("CHANNEL_ID: ", CHANNEL_ID)
+    #import pdb;pdb.set_trace()
     """
     part=\
         contentDetails,\
@@ -57,40 +79,47 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
             ).execute()  
         except:
             print(" ================== ")
-            print("maybe no quotes")
-            print("Next nextPagetoken: ", nextPagetoken)
-            print("next get information")
-            break
+            print("please try first of :", CHANNEL_NAME)
+            traceback.print_exc()
+            exit()
 
         for search_result in search_response.get("items", []):
             if search_result["id"]["kind"] == "youtube#video":
                 searches.append(search_result["id"]["videoId"])
         try:
             nextPagetoken =  search_response["nextPageToken"]
-            with open(P_NextPageToken, mode='w') as f:
-                f.write(str(nextPagetoken))
+            # with open(P_NextPageToken, mode='w') as f:
+            #     f.write(str(nextPagetoken))
             # break
         except:
             print(" ================== ")
             print("maybe no more nextPagetoken")
             print("next get information")
-            with open(P_NextPageToken, mode='w') as f:
-                f.write('finish')
+            # with open(P_NextPageToken, mode='w') as f:
+            #     f.write('finish')
+            traceback.print_exc()
             break
 
     print("num searche videos: ", len(searches))
+    NUM_TOTAL_VIDEOS += len(searches)
     for result in searches:
-        video_response = youtube.videos().list(
-        part = 'snippet,statistics',
-        id = result
-        ).execute()
+        try:
+            video_response = youtube.videos().list(
+            part = 'snippet,statistics',
+            id = result
+            ).execute()
+        except:
+            print(" ================== ")
+            print("please try first of :", CHANNEL_NAME)
+            traceback.print_exc()
+            exit()
 
         for video_result in video_response.get("items", []):
             if video_result["kind"] == "youtube#video":
                 des = video_result["snippet"]["description"].replace('\n','').replace('\r','')
                 if 'viewCount' not in video_result["statistics"].keys():
-                    print(" ================== ")
-                    print("no view count in: ", video_result)
+                    # print(" ================== ")
+                    # print("no view count in: ", video_result)
                     videos.append(
                         [
                             video_result["id"],
@@ -106,8 +135,8 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
                         ]
                     )
                 elif 'likeCount' not in video_result["statistics"].keys():
-                    print(" ================== ")
-                    print("no like count in: ", video_result)
+                    # print(" ================== ")
+                    # print("no like count in: ", video_result)
                     videos.append(
                         [
                             video_result["id"],
@@ -123,8 +152,8 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
                         ]
                     )
                 elif 'commentCount' not in video_result["statistics"].keys():
-                    print(" ================== ")
-                    print("no comment count in: ", video_result)
+                    # print(" ================== ")
+                    # print("no comment count in: ", video_result)
                     videos.append(
                         [
                             video_result["id"],
@@ -155,7 +184,7 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
                         ]
                     )  
 
-    videos_report = pd.DataFrame(videos, columns=['id', 'channelId', 'title', 'viewCount', 'likeCount', 'dislikeCount', 'favoriteCount', 'commentCount', 'publishedAt', 'description'])
+    videos_report = pd.DataFrame(videos, columns=['id', 'channelId', 'title', 'description', 'viewCount', 'likeCount', 'dislikeCount', 'favoriteCount', 'commentCount', 'publishedAt'])
     videos_report.to_csv(CHANNEL_NAME + ".csv", mode='a', index=None)
     print(" ============================ ")
     print(" finish create report of : ", CHANNEL_NAME)
@@ -163,3 +192,4 @@ for (CHANNEL_ID, CHANNEL_NAME) in zip(CHANNEL_IDs, CHANNEL_NAMEs):
 
 print("================================")
 print("finish all list ")
+print(" total num: ", NUM_TOTAL_VIDEOS)
